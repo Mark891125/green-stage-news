@@ -7,8 +7,10 @@ items, and writes the result by Beijing date:
 
 - 8 AI / LLM / Agent / developer-tool items
 - 2 full-stack items
+- collection uses the previous Beijing calendar day as the lower bound by default
 - original GitHub URLs only
 - raw collection data stays under `.local/` and is ignored by git
+- empty selections skip Markdown rendering and PR creation
 
 ## Local run
 

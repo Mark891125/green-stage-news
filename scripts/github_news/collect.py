@@ -3,10 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
-from scripts.github_news.news_pipeline import choose_news_date, load_config
+from scripts.github_news.news_pipeline import (
+    choose_news_date,
+    collection_since_date,
+    load_config,
+)
 
 
 REPO_FIELDS = "fullName,description,url,stargazersCount,language,createdAt,updatedAt,pushedAt,isArchived,isFork"
@@ -22,13 +27,17 @@ def main() -> int:
 
     config = load_config(args.config)
     news_date = choose_news_date(args.date)
+    since_date = collection_since_date(
+        news_date,
+        int(config.get("collection_lookback_days", 1)),
+    )
     raw_path = Path(config["raw_dir"]) / f"{news_date}.jsonl"
     raw_path.parent.mkdir(parents=True, exist_ok=True)
 
     with raw_path.open("w", encoding="utf-8") as handle:
         for category, category_config in config["categories"].items():
             for source in category_config["sources"]:
-                for item in collect_source(source, news_date):
+                for item in collect_source(source, since_date):
                     item["category"] = category
                     item["source"] = source["type"]
                     handle.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -37,7 +46,7 @@ def main() -> int:
     return 0
 
 
-def collect_source(source: dict[str, Any], news_date: str) -> list[dict[str, Any]]:
+def collect_source(source: dict[str, Any], since_date: str) -> list[dict[str, Any]]:
     source_type = source["type"]
     if source_type == "repo":
         cmd = [
@@ -46,7 +55,7 @@ def collect_source(source: dict[str, Any], news_date: str) -> list[dict[str, Any
             "repos",
             source["query"],
             "--updated",
-            f">={news_date}",
+            f">={since_date}",
             "--archived=false",
             "--include-forks=false",
             "--sort",
@@ -66,7 +75,7 @@ def collect_source(source: dict[str, Any], news_date: str) -> list[dict[str, Any
             source["query"],
             "--merged",
             "--merged-at",
-            f">={news_date}",
+            f">={since_date}",
             "--comments",
             source.get("comments", ">=5"),
             "--sort",
@@ -87,7 +96,7 @@ def collect_source(source: dict[str, Any], news_date: str) -> list[dict[str, Any
             "--state",
             "open",
             "--updated",
-            f">={news_date}",
+            f">={since_date}",
             "--comments",
             source.get("comments", ">=10"),
             "--sort",
@@ -102,8 +111,22 @@ def collect_source(source: dict[str, Any], news_date: str) -> list[dict[str, Any
     else:
         raise ValueError(f"unsupported source type: {source_type}")
 
-    completed = subprocess.run(cmd, check=True, text=True, capture_output=True)
-    return json.loads(completed.stdout)
+    try:
+        completed = subprocess.run(cmd, check=True, text=True, capture_output=True)
+        return json.loads(completed.stdout)
+    except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        _warn_collect_failure(source, exc)
+        return []
+
+
+def _warn_collect_failure(source: dict[str, Any], exc: Exception) -> None:
+    detail = str(exc)
+    if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+        detail = exc.stderr.strip()
+    print(
+        f"warning: skipped {source['type']} source {source.get('query', '')!r}: {detail}",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

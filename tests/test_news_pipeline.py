@@ -1,12 +1,17 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from scripts.github_news.collect import collect_source
 from scripts.github_news.news_pipeline import (
     choose_news_date,
+    collection_since_date,
     load_config,
     render_daily_markdown,
+    selected_item_count,
     select_top_items,
     update_index,
 )
@@ -18,6 +23,36 @@ class NewsPipelineTests(unittest.TestCase):
             choose_news_date(None, now_utc="2026-05-21T16:30:00Z"),
             "2026-05-22",
         )
+
+    def test_collection_since_date_uses_previous_beijing_day(self):
+        self.assertEqual(collection_since_date("2026-05-22"), "2026-05-21")
+
+    def test_collect_source_returns_empty_list_when_gh_fails(self):
+        source = {
+            "type": "repo",
+            "query": "ai",
+            "sort": "updated",
+            "limit": 1,
+        }
+        error = subprocess.CalledProcessError(
+            1,
+            ["gh", "search", "repos"],
+            stderr="secondary rate limit",
+        )
+
+        with patch("scripts.github_news.collect.subprocess.run", side_effect=error):
+            self.assertEqual(collect_source(source, "2026-05-22"), [])
+
+    def test_config_does_not_carry_uncollected_release_weight(self):
+        config = load_config("config/github-news.json")
+        configured_sources = {
+            source["type"]
+            for category in config["categories"].values()
+            for source in category["sources"]
+        }
+
+        self.assertNotIn("release", config["source_weights"])
+        self.assertLessEqual(set(config["source_weights"]), configured_sources)
 
     def test_select_top_items_keeps_eight_ai_and_two_fullstack(self):
         config = {
@@ -95,6 +130,18 @@ class NewsPipelineTests(unittest.TestCase):
 
         self.assertIn("- [2026-05-22](./2026/05/2026-05-22.md)", index)
         self.assertLess(index.index("2026-05-22"), index.index("2026-05-21"))
+
+    def test_selected_item_count_handles_missing_and_existing_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            selected_path = Path(tmp) / "selected.json"
+            self.assertEqual(selected_item_count(selected_path), 0)
+
+            selected_path.write_text(
+                json.dumps([{"url": "https://github.com/example/repo"}]),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(selected_item_count(selected_path), 1)
 
     def test_load_config_reads_json_without_external_dependencies(self):
         with tempfile.TemporaryDirectory() as tmp:

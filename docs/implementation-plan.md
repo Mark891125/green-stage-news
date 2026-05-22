@@ -28,19 +28,25 @@ Files not committed to the repository:
 ## Pipeline
 
 1. `collect`: call `gh search repos`, `gh search prs`, and `gh search issues`
-   according to configured source pools; write raw JSONL data locally.
+   according to configured source pools; by default use the previous Beijing
+   date as the search lower bound so the 08:00 run covers a full prior-day
+   window; write raw JSONL data locally.
 2. `select`: normalize candidates, filter low-value items, dedupe by URL and
    repository, score by source, popularity, comments, and keywords, then select
    8 AI items and 2 full-stack items.
 3. `render`: write the daily Markdown file and update `news/index.md`.
 
-All date arguments use `YYYY-MM-DD` and are interpreted as Beijing dates.
+All date arguments use `YYYY-MM-DD` and are interpreted as Beijing dates. The
+first version intentionally collects repositories, pull requests, and issues
+only; release-specific scoring is not enabled until release collection is added.
 
 ## Automation
 
 GitHub Actions runs at 08:00 Beijing time and also supports manual
 `workflow_dispatch`. The workflow creates a `daily-news/YYYY-MM-DD` branch and
 opens a pull request for review instead of pushing directly to `main`.
+If selection returns zero items, the workflow exits without rendering Markdown
+or opening a pull request.
 
 Required workflow permissions:
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
@@ -26,6 +26,15 @@ def choose_news_date(date_arg: str | None, now_utc: str | None = None) -> str:
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     return now.astimezone(BEIJING_TZ).date().isoformat()
+
+
+def collection_since_date(news_date: str, lookback_days: int = 1) -> str:
+    if not DATE_RE.match(news_date):
+        raise ValueError("date must use YYYY-MM-DD format")
+    if lookback_days < 0:
+        raise ValueError("lookback_days must be non-negative")
+    date_value = datetime.strptime(news_date, "%Y-%m-%d").date()
+    return (date_value - timedelta(days=lookback_days)).isoformat()
 
 
 def load_config(path: Path | str) -> dict[str, Any]:
@@ -53,6 +62,16 @@ def write_json(path: Path | str, payload: Any) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def selected_item_count(path: Path | str) -> int:
+    file_path = Path(path)
+    if not file_path.exists():
+        return 0
+    payload = json.loads(file_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError(f"selected file must contain a JSON list: {file_path}")
+    return len(payload)
 
 
 def normalize_candidates(raw_items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -163,8 +182,6 @@ def build_headline(item: dict[str, Any]) -> str:
     repository = item.get("repository", "GitHub 项目")
     source = item.get("source", "repo")
     title = item.get("title") or item.get("description") or "出现新动态"
-    if source == "release":
-        return f"{repository} 发布新版本，{_trim_sentence(title)}。"
     if source == "pr":
         return f"{repository} 合并高关注变更，{_trim_sentence(title)}。"
     if source == "issue":

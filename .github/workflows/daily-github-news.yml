@@ -37,10 +37,22 @@ jobs:
       - name: Select top 10
         run: python3 -m scripts.github_news.select "${NEWS_DATE}"
 
+      - name: Check selected item count
+        id: selected
+        run: |
+          set -euo pipefail
+          COUNT="$(python3 -m scripts.github_news.count_selected "${NEWS_DATE}")"
+          echo "count=${COUNT}" >> "${GITHUB_OUTPUT}"
+          if [ "${COUNT}" -eq 0 ]; then
+            echo "No selected news items; skipping markdown render and PR creation."
+          fi
+
       - name: Render markdown
+        if: steps.selected.outputs.count != '0'
         run: python3 -m scripts.github_news.render "${NEWS_DATE}"
 
       - name: Create review pull request
+        if: steps.selected.outputs.count != '0'
         run: |
           set -euo pipefail
           DATE="${NEWS_DATE:-$(TZ=Asia/Shanghai date +%F)}"

@@ -1,14 +1,14 @@
 {
   "timezone": "Asia/Shanghai",
   "daily_limit": 10,
+  "collection_lookback_days": 1,
   "news_dir": "news",
   "raw_dir": ".local/github-news/raw",
   "selected_dir": ".local/github-news/selected",
   "source_weights": {
     "repo": 30,
     "pr": 25,
-    "issue": 20,
-    "release": 40
+    "issue": 20
   },
   "blocked_terms": [
     "typo",
