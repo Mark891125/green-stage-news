@@ -1,0 +1,70 @@
+name: Daily GitHub News
+
+on:
+  schedule:
+    # 08:00 Beijing time.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Beijing date to generate, YYYY-MM-DD. Empty means today in Asia/Shanghai."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      NEWS_DATE: ${{ inputs.date }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify gh
+        run: gh --version
+
+      - name: Collect candidates
+        run: bash scripts/github_news/collect.sh "${NEWS_DATE}"
+
+      - name: Select top 10
+        run: python3 -m scripts.github_news.select "${NEWS_DATE}"
+
+      - name: Render markdown
+        run: python3 -m scripts.github_news.render "${NEWS_DATE}"
+
+      - name: Create review pull request
+        run: |
+          set -euo pipefail
+          DATE="${NEWS_DATE:-$(TZ=Asia/Shanghai date +%F)}"
+          BRANCH="daily-news/${DATE}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "${BRANCH}"
+          git add news
+
+          if git diff --cached --quiet; then
+            echo "No news changes to publish."
+            exit 0
+          fi
+
+          git commit -m "chore(news): add GitHub news for ${DATE}"
+          git push --force-with-lease origin "${BRANCH}"
+
+          if gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number' | grep -q '[0-9]'; then
+            echo "Pull request already exists for ${BRANCH}."
+          else
+            gh pr create \
+              --head "${BRANCH}" \
+              --base main \
+              --title "chore(news): add GitHub news for ${DATE}" \
+              --body "Generated daily GitHub news for Beijing date ${DATE}."
+          fi
