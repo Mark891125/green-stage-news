@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from scripts.github_news.news_pipeline import (
 REPO_FIELDS = "fullName,description,url,stargazersCount,language,createdAt,updatedAt,pushedAt,isArchived,isFork"
 ISSUE_FIELDS = "title,url,repository,author,commentsCount,createdAt,updatedAt,state"
 PR_FIELDS = "title,url,repository,author,commentsCount,createdAt,updatedAt,closedAt,state"
+MAX_OR_OPERATORS = 5
 
 
 def main() -> int:
@@ -47,13 +49,30 @@ def main() -> int:
 
 
 def collect_source(source: dict[str, Any], since_date: str) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = []
+    for query_args in _query_arg_groups(source["query"]):
+        cmd = _build_search_command(source, since_date, query_args)
+        try:
+            completed = subprocess.run(cmd, check=True, text=True, capture_output=True)
+            payload = json.loads(completed.stdout)
+            if isinstance(payload, list):
+                collected.extend(payload)
+        except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+            _warn_collect_failure(source, exc)
+
+    return _dedupe_results(collected)[: int(source.get("limit", 50))]
+
+
+def _build_search_command(
+    source: dict[str, Any], since_date: str, query_args: list[str]
+) -> list[str]:
     source_type = source["type"]
     if source_type == "repo":
-        cmd = [
+        return [
             "gh",
             "search",
             "repos",
-            source["query"],
+            *query_args,
             "--updated",
             f">={since_date}",
             "--archived=false",
@@ -68,11 +87,11 @@ def collect_source(source: dict[str, Any], since_date: str) -> list[dict[str, An
             REPO_FIELDS,
         ]
     elif source_type == "pr":
-        cmd = [
+        return [
             "gh",
             "search",
             "prs",
-            source["query"],
+            *query_args,
             "--merged",
             "--merged-at",
             f">={since_date}",
@@ -88,11 +107,11 @@ def collect_source(source: dict[str, Any], since_date: str) -> list[dict[str, An
             PR_FIELDS,
         ]
     elif source_type == "issue":
-        cmd = [
+        return [
             "gh",
             "search",
             "issues",
-            source["query"],
+            *query_args,
             "--state",
             "open",
             "--updated",
@@ -111,12 +130,56 @@ def collect_source(source: dict[str, Any], since_date: str) -> list[dict[str, An
     else:
         raise ValueError(f"unsupported source type: {source_type}")
 
-    try:
-        completed = subprocess.run(cmd, check=True, text=True, capture_output=True)
-        return json.loads(completed.stdout)
-    except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-        _warn_collect_failure(source, exc)
-        return []
+
+def _query_arg_groups(query: str) -> list[list[str]]:
+    tokens = shlex.split(query)
+    if not tokens:
+        return [[]]
+    if not any(token.upper() == "OR" for token in tokens):
+        return [tokens]
+
+    terms: list[str] = []
+    current: list[str] = []
+    for token in tokens:
+        if token.upper() == "OR":
+            if current:
+                terms.append(" ".join(current))
+                current = []
+        else:
+            current.append(token)
+    if current:
+        terms.append(" ".join(current))
+
+    if len(terms) <= 1:
+        return [tokens]
+
+    max_terms = MAX_OR_OPERATORS + 1
+    groups = []
+    for offset in range(0, len(terms), max_terms):
+        group: list[str] = []
+        for index, term in enumerate(terms[offset : offset + max_terms]):
+            if index:
+                group.append("OR")
+            group.append(term)
+        groups.append(group)
+    return groups
+
+
+def _dedupe_results(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result = []
+    seen: set[str] = set()
+    for item in items:
+        key = (
+            item.get("url")
+            or item.get("html_url")
+            or item.get("fullName")
+            or item.get("title")
+        )
+        if not isinstance(key, str) or key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
 
 
 def _warn_collect_failure(source: dict[str, Any], exc: Exception) -> None:

@@ -43,6 +43,63 @@ class NewsPipelineTests(unittest.TestCase):
         with patch("scripts.github_news.collect.subprocess.run", side_effect=error):
             self.assertEqual(collect_source(source, "2026-05-22"), [])
 
+    def test_collect_source_passes_or_query_as_search_tokens(self):
+        source = {
+            "type": "repo",
+            "query": "ai OR llm OR agent",
+            "sort": "updated",
+            "limit": 1,
+        }
+        completed = subprocess.CompletedProcess(
+            ["gh", "search", "repos"],
+            0,
+            stdout=json.dumps(
+                [
+                    {
+                        "fullName": "example/ai",
+                        "url": "https://github.com/example/ai",
+                    }
+                ]
+            ),
+        )
+
+        with patch(
+            "scripts.github_news.collect.subprocess.run",
+            return_value=completed,
+        ) as run:
+            self.assertEqual(len(collect_source(source, "2026-05-22")), 1)
+
+        command = run.call_args.args[0]
+        self.assertNotIn("ai OR llm OR agent", command)
+        self.assertIn("ai", command)
+        self.assertIn("OR", command)
+        self.assertIn("llm", command)
+        self.assertIn("agent", command)
+
+    def test_collect_source_chunks_long_or_queries_to_github_boolean_limit(self):
+        source = {
+            "type": "repo",
+            "query": "frontend OR backend OR database OR framework OR api OR devops OR testing",
+            "sort": "updated",
+            "limit": 1,
+        }
+        completed = subprocess.CompletedProcess(
+            ["gh", "search", "repos"],
+            0,
+            stdout="[]",
+        )
+
+        with patch(
+            "scripts.github_news.collect.subprocess.run",
+            return_value=completed,
+        ) as run:
+            self.assertEqual(collect_source(source, "2026-05-22"), [])
+
+        self.assertGreater(run.call_count, 1)
+        for call in run.call_args_list:
+            command = call.args[0]
+            self.assertLessEqual(command.count("OR"), 5)
+
     def test_config_does_not_carry_uncollected_release_weight(self):
         config = load_config("config/github-news.json")
         configured_sources = {
