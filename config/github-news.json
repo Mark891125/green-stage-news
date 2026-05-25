@@ -1,0 +1,90 @@
+{
+  "timezone": "Asia/Shanghai",
+  "daily_limit": 10,
+  "collection_lookback_days": 1,
+  "news_dir": "news",
+  "raw_dir": ".local/github-news/raw",
+  "selected_dir": ".local/github-news/selected",
+  "source_weights": {
+    "repo": 30,
+    "pr": 25,
+    "issue": 20
+  },
+  "blocked_terms": [
+    "typo",
+    "docs only",
+    "dependency bump",
+    "chore",
+    "minor fix",
+    "readme"
+  ],
+  "categories": {
+    "ai": {
+      "daily_limit": 8,
+      "keywords": [
+        "ai",
+        "llm",
+        "agent",
+        "mcp",
+        "rag",
+        "inference",
+        "machine learning",
+        "developer tools"
+      ],
+      "sources": [
+        {
+          "type": "repo",
+          "query": "ai OR llm OR agent OR mcp OR rag OR inference",
+          "sort": "stars",
+          "limit": 80
+        },
+        {
+          "type": "pr",
+          "query": "ai OR llm OR agent OR mcp",
+          "comments": ">=5",
+          "limit": 40
+        },
+        {
+          "type": "issue",
+          "query": "ai OR llm OR agent OR mcp",
+          "comments": ">=10",
+          "limit": 40
+        }
+      ]
+    },
+    "fullstack": {
+      "daily_limit": 2,
+      "keywords": [
+        "frontend",
+        "backend",
+        "database",
+        "framework",
+        "api",
+        "devops",
+        "observability",
+        "testing",
+        "cloud native"
+      ],
+      "sources": [
+        {
+          "type": "repo",
+          "query": "frontend OR backend OR database OR framework OR api OR devops OR testing",
+          "sort": "stars",
+          "limit": 60
+        },
+        {
+          "type": "pr",
+          "query": "frontend OR backend OR database OR framework OR api",
+          "comments": ">=5",
+          "limit": 30
+        },
+        {
+          "type": "issue",
+          "query": "frontend OR backend OR database OR framework OR api",
+          "comments": ">=10",
+          "limit": 30
+        }
+      ]
+    }
+  }
+}
